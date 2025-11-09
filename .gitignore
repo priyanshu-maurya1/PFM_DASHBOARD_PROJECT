@@ -42,3 +42,17 @@ coverage/
 # Temporary folders
 tmp/
 temp/
+# Node
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+.vscode/
+.idea/
+*.log

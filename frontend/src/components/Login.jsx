@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react"; // ⬅️ useEffect is needed for side effects (DOM, localStorage)
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { motion } from "framer-motion";
@@ -9,13 +9,30 @@ const Login = () => {
     password: "",
   });
   const [error, setError] = useState("");
-  const [darkMode, setDarkMode] = useState(false);
+  
+  // ✅ FIX 1: Initialize dark mode state from localStorage
+  const [darkMode, setDarkMode] = useState(() => {
+    // Check localStorage for previous theme preference, default to false (light)
+    return localStorage.getItem("theme") === "dark"; 
+  }); 
+
   const [language, setLanguage] = useState("en");
 
   const { login, loading } = useAuth();
   const navigate = useNavigate();
 
-  // 🌍 Translations
+  // ✅ FIX 2: Use useEffect to apply the 'dark' class to the <html> element and update localStorage
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [darkMode]);
+
+  // 🌍 Translations (kept the same, they are correct)
   const translations = {
     en: {
       welcome: "🏦 Welcome Back",
@@ -172,7 +189,8 @@ const Login = () => {
               : "bg-gray-900 text-white hover:bg-gray-800"
           }`}
         >
-          {darkMode ? "☀️ Light" : "🌙 Dark"}
+          {/* Note: You could use the Sun/Moon icons here for better UX! */}
+          {darkMode ? "☀️ Light" : "🌙 Dark"} 
         </button>
       </div>
 
