@@ -15,7 +15,6 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-// Category List
 const categories = [
   'Food and Drink',
   'Transportation',
@@ -26,193 +25,263 @@ const categories = [
   'Other',
 ];
 
-// Chart colors
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8A2BE2', '#DC143C', '#FF69B4'];
 
 const BudgetManager = ({ refresh }) => {
-  const [budgets, setBudgets] = useState([]);
+  const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ category: '', amount: '' });
+  const [formData, setFormData] = useState({
+    name: '',
+    category: '',
+    amount: '',
+    date: new Date().toISOString().split('T')[0],
+  });
 
-  // Fetch Budgets
-  const fetchBudgets = async () => {
+  const fetchExpenses = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/api/budgets');
-      setBudgets(response.data.budgets);
+      const response = await api.get('/api/user-transactions');
+      setExpenses(response.data.transactions || []);
     } catch (error) {
-      console.error('Error fetching budgets:', error);
-      setBudgets([]);
+      console.error('Error fetching expenses:', error);
+      setExpenses([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchBudgets();
+    fetchExpenses();
   }, [refresh]);
 
-  // Add New Budget
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/api/budgets', formData);
-      toast.success('Budget saved successfully');
-      setFormData({ category: '', amount: '' });
+      await api.post('/api/user-transactions', {
+        name: formData.name,
+        amount: parseFloat(formData.amount),
+        category: formData.category,
+        date: formData.date,
+      });
+      toast.success('Expense added successfully');
+      setFormData({
+        name: '',
+        category: '',
+        amount: '',
+        date: new Date().toISOString().split('T')[0],
+      });
       setShowForm(false);
-      fetchBudgets();
+      fetchExpenses();
     } catch (error) {
-      toast.error('Failed to save budget');
+      toast.error('Failed to add expense');
     }
   };
 
-  // Delete Budget
-  const handleDelete = async (budgetId) => {
+  const handleDelete = async (expenseId) => {
     try {
-      await api.delete(`/api/budgets/${budgetId}`); // ✅ fixed template literal
-      toast.success('Budget deleted');
-      fetchBudgets();
+      await api.delete(`/api/user-transactions/${expenseId}`);
+      toast.success('Expense deleted');
+      fetchExpenses();
     } catch (error) {
-      toast.error('Failed to delete budget');
+      toast.error('Failed to delete expense');
     }
   };
 
-  // Compute frequency and total per category
+  // Safe: handles category as string OR array
+  const getCategoryLabel = (category) => {
+    if (!category) return 'Uncategorized';
+    if (Array.isArray(category)) return category.join(', ');
+    return category;
+  };
+
+  // Build chart data — frequency + total per category
   const categoryData = categories
-    .map((cat) => {
-      const catBudgets = budgets.filter((b) => b.category === cat);
-      const totalAmount = catBudgets.reduce((sum, b) => sum + Number(b.amount || 0), 0);
+    .map((cat, index) => {
+      const matched = expenses.filter((e) => {
+        if (!e.category) return false;
+        const cats = Array.isArray(e.category) ? e.category : [e.category];
+        return cats.some(
+          (c) =>
+            c.toLowerCase().includes(cat.toLowerCase()) ||
+            cat.toLowerCase().includes(c.toLowerCase())
+        );
+      });
       return {
         category: cat,
-        frequency: catBudgets.length,
-        total: totalAmount,
+        frequency: matched.length,
+        total: matched.reduce((sum, e) => sum + Number(e.amount || 0), 0),
+        color: COLORS[index % COLORS.length],
       };
     })
-    .filter((data) => data.frequency > 0 || data.total > 0);
+    .filter((d) => d.frequency > 0);
 
-  // Total budget summary
-  const totalBudget = budgets.reduce((sum, b) => sum + Number(b.amount || 0), 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+  const formatDate = (dateString) => {
+    if (!dateString) return '';
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const CustomPieTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px' }}>
+          <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>{payload[0].name}</p>
+          <p style={{ margin: 0, fontSize: 13, color: '#374151' }}>₹{Number(payload[0].value).toFixed(2)}</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const CustomBarTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px' }}>
+          <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>{label}</p>
+          <p style={{ margin: 0, fontSize: 13, color: '#374151' }}>Transactions: {payload[0].value}</p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-1/4 mb-4"></div>
-          <div className="space-y-3">
-            <div className="h-4 bg-gray-200 rounded"></div>
-            <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-          </div>
-        </div>
+      <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
+        Loading expenses...
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 space-y-6">
+    <div className="max-w-3xl mx-auto p-4 space-y-6">
+
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Monthly Budgets</h3>
+        <h2 className="text-2xl font-bold text-gray-800">Expense Tracker</h2>
         <button
-          onClick={() => setShowForm(!showForm)}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-3 py-1 rounded"
+          onClick={() => setShowForm((prev) => !prev)}
+          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         >
-          {showForm ? 'Cancel' : 'Add Budget'}
+          {showForm ? 'Cancel' : '+ Add Expense'}
         </button>
       </div>
 
-      {/* Add Form */}
+      {/* Total Spent Banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 flex justify-between items-center">
+        <span className="text-blue-700 font-medium text-sm">Total Spent</span>
+        <span className="text-blue-900 font-bold text-xl">₹{totalExpenses.toFixed(2)}</span>
+      </div>
+
+      {/* Add Expense Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="mb-4 p-4 bg-gray-50 rounded">
-          <div className="grid grid-cols-2 gap-4">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm space-y-4"
+        >
+          <h3 className="font-semibold text-gray-700 text-sm">New Expense</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input
+              type="text"
+              placeholder="Expense name"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-full"
+              required
+            />
             <select
               value={formData.category}
               onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-              className="border rounded px-3 py-2"
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-full"
               required
             >
               <option value="">Select Category</option>
               {categories.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
+                <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
             <input
               type="number"
-              placeholder="Budget Amount"
+              placeholder="Amount (₹)"
               value={formData.amount}
               onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-              className="border rounded px-3 py-2"
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-full"
               required
               min="0"
               step="0.01"
             />
+            <input
+              type="date"
+              value={formData.date}
+              onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 w-full"
+              required
+            />
           </div>
           <button
             type="submit"
-            className="mt-3 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm"
+            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
           >
-            Save Budget
+            Add Expense
           </button>
         </form>
       )}
 
-      {/* Budget List */}
-      <div className="space-y-3">
-        {budgets.length === 0 ? (
-          <p className="text-gray-500 text-center">No budgets set for this month.</p>
+      {/* Expense List */}
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-700">
+            All Expenses ({expenses.length})
+          </h3>
+        </div>
+        {expenses.length === 0 ? (
+          <p className="text-center text-gray-400 text-sm py-10">
+            No expenses recorded yet. Add your first expense above.
+          </p>
         ) : (
-          budgets.map((budget) => (
-            <div
-              key={budget._id}
-              className="flex items-center justify-between p-3 bg-gray-50 rounded"
-            >
-              <div>
-                <span className="font-medium">{budget.category}</span>
-                <span className="text-gray-500 ml-2">₹{Number(budget.amount).toFixed(2)}</span>
-              </div>
-              <button
-                onClick={() => handleDelete(budget._id)}
-                className="text-red-600 hover:text-red-800 text-sm"
+          <ul className="divide-y divide-gray-100">
+            {expenses.map((expense) => (
+              <li
+                key={expense._id}
+                className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
               >
-                Delete
-              </button>
-            </div>
-          ))
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{expense.name}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {getCategoryLabel(expense.category)} &middot; {formatDate(expense.date)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-semibold text-gray-700">
+                    ₹{Number(expense.amount).toFixed(2)}
+                  </span>
+                  <button
+                    onClick={() => handleDelete(expense._id)}
+                    className="text-red-500 hover:text-red-700 text-xs font-medium transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
-      {/* Budget Summary */}
-      {budgets.length > 0 && (
-        <div className="bg-gray-50 rounded-lg p-4 mt-6">
-          <h4 className="text-md font-semibold mb-2">Budget Summary</h4>
-          <p className="text-gray-700">Total Budget: ₹{totalBudget.toFixed(2)}</p>
-        </div>
-      )}
-
-      {/* Charts */}
+      {/* Charts — only shown when there is data */}
       {categoryData.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-          {/* Frequency Chart */}
-          <div className="bg-gray-50 rounded-lg p-4 shadow">
-            <h4 className="text-sm font-semibold mb-3">Category Frequency</h4>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={categoryData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="category" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="frequency" fill="#8884d8" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-          {/* Pie Chart */}
-          <div className="bg-gray-50 rounded-lg p-4 shadow">
-            <h4 className="text-sm font-semibold mb-3">Budget Distribution</h4>
-            <ResponsiveContainer width="100%" height={300}>
+          {/* Pie Chart — Spending by Category */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">Spending by Category</h3>
+            <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie
                   data={categoryData}
@@ -220,20 +289,59 @@ const BudgetManager = ({ refresh }) => {
                   nameKey="category"
                   cx="50%"
                   cy="50%"
-                  outerRadius={100}
-                  label
+                  outerRadius={85}
+                  label={({ percent }) =>
+                    percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : ''
+                  }
+                  labelLine={false}
                 >
-                  {categoryData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} /> // ✅ fixed key syntax
+                  {categoryData.map((entry) => (
+                    <Cell key={entry.category} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
-                <Legend />
+                <Tooltip content={<CustomPieTooltip />} />
+                <Legend
+                  formatter={(value) => (
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>{value}</span>
+                  )}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>
+
+          {/* Bar Chart — Frequency per Category */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">Transaction Frequency</h3>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart
+                data={categoryData}
+                margin={{ top: 5, right: 10, left: -15, bottom: 65 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                <XAxis
+                  dataKey="category"
+                  tick={{ fontSize: 10, fill: '#9ca3af' }}
+                  angle={-40}
+                  textAnchor="end"
+                  interval={0}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#9ca3af' }}
+                  allowDecimals={false}
+                />
+                <Tooltip content={<CustomBarTooltip />} />
+                <Bar dataKey="frequency" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                  {categoryData.map((entry) => (
+                    <Cell key={entry.category} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
         </div>
       )}
+
     </div>
   );
 };

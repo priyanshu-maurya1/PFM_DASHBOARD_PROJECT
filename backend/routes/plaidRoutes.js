@@ -118,10 +118,10 @@ router.get("/api/accounts", authenticateToken, async (req, res) => {
 });
 
 /**
- * GET /api/transactions/:userId
- * Fetch transactions (e.g. last 30 days)
+ * GET /api/plaid/transactions
+ * Fetch transactions from Plaid (e.g. last 30 days)
  */
-router.get("/api/transactions", authenticateToken, async (req, res) => {
+router.get("/api/plaid/transactions", authenticateToken, async (req, res) => {
   try {
     const plaidItem = await PlaidItem.findOne({ userId: req.user._id });
     if (!plaidItem) {
@@ -141,8 +141,8 @@ router.get("/api/transactions", authenticateToken, async (req, res) => {
     const transactions = txResp.data.transactions;
     res.json({ transactions });
   } catch (err) {
-    console.error("Error fetching transactions:", err.response ? err.response.data : err);
-    res.status(500).json({ error: "Could not fetch transactions" });
+    console.error("Error fetching plaid transactions:", err.response ? err.response.data : err);
+    res.status(500).json({ error: "Could not fetch plaid transactions" });
   }
 });
 

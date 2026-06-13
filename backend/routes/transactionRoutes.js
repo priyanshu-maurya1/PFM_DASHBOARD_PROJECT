@@ -5,7 +5,7 @@ import Transaction from "../models/Transaction.js";
 const router = express.Router();
 
 // ✅ Get all transactions for user
-router.get("/api/user-transactions", authenticateToken, async (req, res) => {
+router.get("/user-transactions", authenticateToken, async (req, res) => {
   try {
     const transactions = await Transaction.find({ userId: req.user._id })
       .sort({ date: -1 })
@@ -18,7 +18,7 @@ router.get("/api/user-transactions", authenticateToken, async (req, res) => {
 });
 
 // Compatibility endpoint used by frontend: return transactions as an array
-router.get('/api/transactions', authenticateToken, async (req, res) => {
+router.get('/transactions', authenticateToken, async (req, res) => {
   try {
     const transactions = await Transaction.find({ userId: req.user._id })
       .sort({ date: -1 })
@@ -33,7 +33,7 @@ router.get('/api/transactions', authenticateToken, async (req, res) => {
 });
 
 // ✅ Add manual transaction (supports single object or array for bulk add)
-router.post("/api/user-transactions", authenticateToken, async (req, res) => {
+router.post("/user-transactions", authenticateToken, async (req, res) => {
   try {
     const payload = req.body;
 
@@ -106,7 +106,7 @@ router.post("/api/user-transactions", authenticateToken, async (req, res) => {
 });
 
 // ✅ Update transaction
-router.put("/api/user-transactions/:id", authenticateToken, async (req, res) => {
+router.put("/user-transactions/:id", authenticateToken, async (req, res) => {
   try {
     const { name, amount, date, category } = req.body;
 
@@ -133,7 +133,7 @@ router.put("/api/user-transactions/:id", authenticateToken, async (req, res) => 
 });
 
 // ✅ Delete transaction
-router.delete("/api/user-transactions/:id", authenticateToken, async (req, res) => {
+router.delete("/user-transactions/:id", authenticateToken, async (req, res) => {
   try {
     const transaction = await Transaction.findOneAndDelete({
       _id: req.params.id,

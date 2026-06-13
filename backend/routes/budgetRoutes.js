@@ -5,7 +5,7 @@ import Budget from '../models/Budget.js';
 const router = express.Router();
 
 // Get budgets for current month
-router.get('/api/budgets', authenticateToken, async (req, res) => {
+router.get('/budgets', authenticateToken, async (req, res) => {
   try {
     const now = new Date();
     const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -23,7 +23,7 @@ router.get('/api/budgets', authenticateToken, async (req, res) => {
 });
 
 // Create or update budget
-router.post('/api/budgets', authenticateToken, async (req, res) => {
+router.post('/budgets', authenticateToken, async (req, res) => {
   try {
     const { category, amount } = req.body;
     const now = new Date();
@@ -52,7 +52,7 @@ router.post('/api/budgets', authenticateToken, async (req, res) => {
 });
 
 // Delete budget
-router.delete('/api/budgets/:id', authenticateToken, async (req, res) => {
+router.delete('/budgets/:id', authenticateToken, async (req, res) => {
   try {
     await Budget.findOneAndDelete({
       _id: req.params.id,

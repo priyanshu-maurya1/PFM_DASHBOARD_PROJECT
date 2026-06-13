@@ -1,26 +1,47 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import api from '../utils/api';
+import toast from 'react-hot-toast';
+
+// Helper function to get profile picture URL
+const getProfilePictureUrl = (profilePicture) => {
+  if (!profilePicture) return '';
+  if (profilePicture.startsWith('http')) return profilePicture;
+  return `http://localhost:5000${profilePicture}`;
+};
 
 const ProfileDropdown = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     username: user?.username || '',
     email: user?.email || '',
-    profilePicture: user?.profilePicture
-      ? `http://localhost:5000${user.profilePicture}`
-      : '',
+    profilePicture: '',
   });
   const fileInputRef = useRef(null);
   const dropdownRef = useRef(null);
 
-  // ✅ Close dropdown on outside click
+  // Sync formData when user data changes
+  useEffect(() => {
+    if (user) {
+      setFormData({
+        username: user.username || '',
+        email: user.email || '',
+        profilePicture: getProfilePictureUrl(user.profilePicture),
+      });
+    }
+  }, [user]);
+
+  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setIsOpen(false);
+        setIsEditing(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -33,90 +54,124 @@ const ProfileDropdown = () => {
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const formDataUpload = new FormData();
-      formDataUpload.append('profilePicture', file);
+    if (!file) return;
 
-      try {
-        const response = await fetch(
-          'http://localhost:5000/api/users/profile/upload',
-          {
-            method: 'POST',
-            credentials: 'include',
-            body: formDataUpload,
-          }
-        );
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
 
-        if (response.ok) {
-          const data = await response.json();
-          setFormData({
-            ...formData,
-            profilePicture: `http://localhost:5000${data.profilePicture}`,
-          });
-        } else {
-          const error = await response.json();
-          alert(error.error || 'Failed to upload profile picture');
-        }
-      } catch {
-        alert('Error uploading profile picture');
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size must be less than 5MB');
+      return;
+    }
+
+    setIsUploading(true);
+    const formDataUpload = new FormData();
+    formDataUpload.append('profilePicture', file);
+
+    try {
+      const response = await api.post('/api/users/profile/upload', formDataUpload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      if (response.data.profilePicture) {
+        const newProfilePicture = getProfilePictureUrl(response.data.profilePicture);
+        setFormData((prev) => ({ ...prev, profilePicture: newProfilePicture }));
+        updateUser({ profilePicture: response.data.profilePicture });
+        toast.success('Profile picture uploaded successfully');
+      }
+    } catch (error) {
+      const errorMsg = error.response?.data?.error || 'Failed to upload profile picture';
+      toast.error(errorMsg);
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
     }
   };
 
   const handleSave = async () => {
+    if (!formData.username.trim()) {
+      toast.error('Username is required');
+      return;
+    }
+    if (!formData.email.trim()) {
+      toast.error('Email is required');
+      return;
+    }
+
+    setIsSaving(true);
     try {
-      const response = await fetch('http://localhost:5000/api/users/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          username: formData.username,
-          email: formData.email,
-        }),
+      const response = await api.put('/api/users/profile', {
+        username: formData.username,
+        email: formData.email,
       });
 
-      if (response.ok) {
+      if (response.data.user) {
+        updateUser({
+          username: response.data.user.username,
+          email: response.data.user.email,
+        });
         setIsEditing(false);
-      } else {
-        const error = await response.json();
-        alert(error.error || 'Failed to update profile');
+        toast.success('Profile updated successfully');
       }
-    } catch {
-      alert('Error updating profile');
+    } catch (error) {
+      const errorMsg = error.response?.data?.error || 'Failed to update profile';
+      toast.error(errorMsg);
+    } finally {
+      setIsSaving(false);
     }
+  };
+
+  const handleCancelEdit = () => {
+    // Reset formData to current user values
+    if (user) {
+      setFormData({
+        username: user.username || '',
+        email: user.email || '',
+        profilePicture: getProfilePictureUrl(user.profilePicture),
+      });
+    }
+    setIsEditing(false);
   };
 
   return (
     <div className="relative" ref={dropdownRef}>
-      {/* ✅ Top bar avatar + welcome text */}
+      {/* Top bar avatar + welcome text */}
       <div className="flex items-center space-x-3">
         <span className="hidden md:block text-gray-800 text-base font-semibold">
-          Welcome, {user?.username}
+          Welcome, {user?.username || 'User'}
         </span>
 
         <button
           onClick={() => setIsOpen(!isOpen)}
           className="focus:outline-none hover:opacity-80 transition"
+          disabled={!user}
         >
           <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center overflow-hidden border border-blue-300 shadow-sm">
-            {user?.profilePicture ? (
+            {formData.profilePicture ? (
               <img
-                src={`http://localhost:5000${user.profilePicture}`}
+                src={formData.profilePicture}
                 alt="Profile"
                 className="w-full h-full object-cover"
               />
             ) : (
               <span className="text-lg font-medium text-blue-700">
-                {user?.username?.[0]?.toUpperCase()}
+                {user?.username?.[0]?.toUpperCase() || 'U'}
               </span>
             )}
           </div>
         </button>
       </div>
 
-      {/* ✅ Animated dropdown with Framer Motion */}
+      {/* Animated dropdown with Framer Motion */}
       <AnimatePresence>
-        {isOpen && (
+        {isOpen && user && (
           <motion.div
             key="dropdown"
             initial={{ opacity: 0, scale: 0.9, y: -10 }}
@@ -128,23 +183,24 @@ const ProfileDropdown = () => {
             {/* Profile header */}
             <div className="flex items-center space-x-3 mb-4 border-b border-gray-100 pb-3">
               <div className="relative w-16 h-16 rounded-full overflow-hidden bg-blue-50 border border-blue-200">
-                {user?.profilePicture ? (
+                {formData.profilePicture ? (
                   <img
-                    src={`http://localhost:5000${user.profilePicture}`}
+                    src={formData.profilePicture}
                     alt="Profile"
                     className="w-full h-full object-cover"
                   />
                 ) : (
                   <span className="text-xl font-semibold text-blue-700 flex items-center justify-center h-full">
-                    {user?.username?.[0]?.toUpperCase()}
+                    {user?.username?.[0]?.toUpperCase() || 'U'}
                   </span>
                 )}
                 {isEditing && (
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="absolute inset-0 bg-blue-600 bg-opacity-60 text-white text-xs flex items-center justify-center"
+                    disabled={isUploading}
+                    className="absolute inset-0 bg-blue-600 bg-opacity-60 text-white text-xs flex items-center justify-center hover:bg-opacity-70 transition disabled:cursor-not-allowed"
                   >
-                    Change
+                    {isUploading ? 'Uploading...' : 'Change'}
                   </button>
                 )}
               </div>
@@ -157,14 +213,18 @@ const ProfileDropdown = () => {
                       name="username"
                       value={formData.username}
                       onChange={handleInputChange}
-                      className="w-full px-2 py-1 border border-gray-200 rounded text-sm mb-1 focus:ring-1 focus:ring-blue-400"
+                      placeholder="Username"
+                      className="w-full px-2 py-1 border border-gray-200 rounded text-sm mb-1 focus:ring-1 focus:ring-blue-400 focus:outline-none"
+                      disabled={isSaving}
                     />
                     <input
                       type="email"
                       name="email"
                       value={formData.email}
                       onChange={handleInputChange}
-                      className="w-full px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-blue-400"
+                      placeholder="Email"
+                      className="w-full px-2 py-1 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-blue-400 focus:outline-none"
+                      disabled={isSaving}
                     />
                   </>
                 ) : (
@@ -184,21 +244,24 @@ const ProfileDropdown = () => {
               accept="image/*"
               onChange={handleFileUpload}
               className="hidden"
+              disabled={isUploading}
             />
 
-            {/* ✅ Buttons */}
+            {/* Buttons */}
             <div className="flex flex-col space-y-2">
               {isEditing ? (
                 <div className="flex space-x-2">
                   <button
                     onClick={handleSave}
-                    className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 text-sm transition"
+                    disabled={isSaving}
+                    className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Save
+                    {isSaving ? 'Saving...' : 'Save'}
                   </button>
                   <button
-                    onClick={() => setIsEditing(false)}
-                    className="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg hover:bg-gray-200 text-sm transition"
+                    onClick={handleCancelEdit}
+                    disabled={isSaving}
+                    className="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg hover:bg-gray-200 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Cancel
                   </button>

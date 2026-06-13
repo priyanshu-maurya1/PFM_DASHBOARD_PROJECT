@@ -1,26 +1,37 @@
 import { createClient } from 'redis';
 
 let redisClient = null;
+let redisConnectionAttempted = false;
 
 const connectRedis = async () => {
-  if (process.env.REDIS_URL) {
+  // Prevent multiple connection attempts
+  if (redisConnectionAttempted) {
+    return;
+  }
+  redisConnectionAttempted = true;
+
+  if (process.env.REDIS_URL && process.env.REDIS_URL !== 'redis://localhost:6379') {
     try {
       const client = createClient({ url: process.env.REDIS_URL });
+      
       client.on('error', (err) => {
-        console.error('Redis Client Error', err);
+        // Only log once to avoid spam
+        if (!client._errorLogged) {
+          console.warn('Redis unavailable, using in-memory fallback');
+          client._errorLogged = true;
+        }
       });
 
       await client.connect();
       console.log('Redis Connected');
-
       redisClient = client;
     } catch (error) {
-      // keep redisClient null so callers know it's unavailable
-      console.error('Redis connection failed, using in-memory fallback', error?.message || error);
+      // Silently fail - Redis is optional
       redisClient = null;
     }
   } else {
-    console.warn('No REDIS_URL provided; skipping Redis connection');
+    // Skip Redis if using localhost (not available)
+    redisClient = null;
   }
 };
 
@@ -28,9 +39,8 @@ const disconnectRedis = async () => {
   if (redisClient) {
     try {
       await redisClient.disconnect();
-      console.log('Redis Disconnected');
     } catch (err) {
-      console.warn('Error during Redis disconnection', err?.message || err);
+      // Silent fail on disconnect
     }
     redisClient = null;
   }

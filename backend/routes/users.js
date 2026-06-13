@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import User from '../models/User.js';
 import bcrypt from 'bcrypt';
 import Transaction from '../models/Transaction.js';
@@ -12,18 +13,31 @@ import Account from '../models/Account.js';
 import { authenticateToken } from '../middlewares/auth.js';
 
 const router = express.Router();
-const __dirname = import.meta.dirname;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+// Base uploads directory
+const baseUploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(baseUploadsDir)) {
+  fs.mkdirSync(baseUploadsDir, { recursive: true });
 }
 
-// Configure multer for file uploads
+// Helper function to get user-specific profile pictures directory
+const getUserProfileDir = (userId) => {
+  const userDir = path.join(baseUploadsDir, 'profiles', userId.toString());
+  if (!fs.existsSync(userDir)) {
+    fs.mkdirSync(userDir, { recursive: true });
+  }
+  return userDir;
+};
+
+// Configure multer for profile picture uploads - stores in user-specific directory
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadsDir);
+    // Get userId from authenticated user
+    const userId = req.user?._id || req.user?.id || 'default';
+    const userDir = getUserProfileDir(userId);
+    cb(null, userDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -47,7 +61,10 @@ const upload = multer({
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('-password');
-    res.json({ user });
+    res.json({ 
+      success: true, 
+      user 
+    });
   } catch (error) {
     res.status(500).json({ error: 'Server error fetching profile' });
   }
@@ -103,14 +120,32 @@ router.post('/profile/upload', authenticateToken, upload.single('profilePicture'
     
     // Delete old profile picture if it exists
     if (user.profilePicture) {
-      const oldFilePath = path.join(uploadsDir, path.basename(user.profilePicture));
-      if (fs.existsSync(oldFilePath)) {
-        fs.unlinkSync(oldFilePath);
+      // The old profile picture could be in different locations:
+      // 1. /uploads/profile-xxx.jpeg (old format)
+      // 2. /uploads/profiles/{userId}/profile-xxx.jpeg (new format)
+      
+      let oldFilePath = '';
+      
+      if (user.profilePicture.startsWith('/uploads/profiles/')) {
+        // New format - file is in user-specific directory
+        oldFilePath = path.join(__dirname, '..', user.profilePicture);
+      } else if (user.profilePicture.startsWith('/uploads/')) {
+        // Old format - file is in root uploads directory
+        oldFilePath = path.join(__dirname, '..', user.profilePicture);
+      }
+      
+      if (oldFilePath && fs.existsSync(oldFilePath)) {
+        try {
+          fs.unlinkSync(oldFilePath);
+          console.log('Deleted old profile picture:', oldFilePath);
+        } catch (deleteErr) {
+          console.warn('Could not delete old profile picture:', deleteErr.message);
+        }
       }
     }
 
-    // Update user with new profile picture URL
-    const profilePictureUrl = `/uploads/${req.file.filename}`;
+    // Update user with new profile picture URL (user-specific path)
+    const profilePictureUrl = `/uploads/profiles/${userId}/${req.file.filename}`;
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { profilePicture: profilePictureUrl },
@@ -123,7 +158,8 @@ router.post('/profile/upload', authenticateToken, upload.single('profilePicture'
       profilePicture: profilePictureUrl
     });
   } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('Profile upload error:', error);
+    res.status(500).json({ error: 'Server error uploading profile picture' });
   }
 });
 
@@ -145,6 +181,41 @@ router.get('/search', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('User search error:', error);
     res.status(500).json({ error: 'Server error searching users' });
+  }
+});
+
+// GET /api/users/profiles - List all user profiles (authenticated users only)
+router.get('/profiles', authenticateToken, async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search = '' } = req.query;
+    const query = search ? {
+      $or: [
+        { username: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ]
+    } : {};
+
+    const users = await User.find(query)
+      .select('_id username email profilePicture role createdAt')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .lean();
+
+    const total = await User.countDocuments(query);
+
+    res.json({
+      profiles: users,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    console.error('Profiles list error:', error);
+    res.status(500).json({ error: 'Server error fetching profiles' });
   }
 });
 

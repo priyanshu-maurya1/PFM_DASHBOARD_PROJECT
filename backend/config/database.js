@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
  * unreachable (useful in local dev or when network hiccups occur).
  */
 const connectDB = async () => {
-  const uri = process.env.MONGODB_URI;
+const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
   if (!uri) {
     console.warn('No MONGODB_URI provided; skipping MongoDB connection');
     return;
